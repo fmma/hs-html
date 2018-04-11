@@ -1,0 +1,79 @@
+recip:
+input
+div(1.0, x0)
+
+uminus:
+input
+minus(0, x0)
+
+neq:
+input
+input
+not(eq(x0, x1))
+
+less:
+input
+input
+and(leq(x0, x1), neq(x0, x1))
+
+geq:
+input
+input
+leq(x1, x0)
+
+greater:
+input
+input
+less(x1, x0)
+
+max:
+input
+input
+tern(leq(x0, x1), x1, x0) 
+
+min: 
+input 
+input
+tern(leq(x0, x1), x0, x1) 
+
+pow: 
+input 
+input
+exp(times(log(x0), x1))
+
+logbase: 
+input 
+input
+div(log(x1), log(x0))
+
+sqrt: 
+input
+pow(x0, 0.5)
+
+tan:
+input
+div(sin(x0), cos(x0))
+
+tanh: 
+input
+div(sinh(x0), cosh(x0))
+
+swap:
+input
+input
+(x1, x0)
+
+substr:
+input
+input
+input
+take(x2, drop(x1, x0))
+
+charat:
+input
+input
+substr(x0, x1, 1)
+
+first:
+input
+(x0.1, plus(x0.1, 1.0))
