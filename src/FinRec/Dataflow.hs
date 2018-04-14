@@ -12,7 +12,7 @@ type Network = [Node]
 type NetworkProcedure = Network
 
 initial :: Program -> Network
-initial (Program _ es) = zip (repeat Nothing) es
+initial (Program _ es _) = zip (repeat Nothing) es
 
 showNetwork :: Network -> String
 showNetwork n = 

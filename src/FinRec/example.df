@@ -1,0 +1,24 @@
+dataflow:
+    name:   http_query_param(string, "series")
+    series: csv_parse((date, int), http_get("/", ("series", name)))
+    target: csv_parse((date, int), http_get("/", ("series", name ++ "_target")))
+    current_target: last(target).1
+    weight: i0
+    diff:   weight - current_target
+
+submit:
+    dataflow.series := push(dataflow.series, (now(), dataflow.weight)
+    http_post("/post/", ("series", dataflow.name), dataflow.weight)
+
+#
+# TODO
+#   1. named expressions and references (name: ...)
+#          Maybe treat references and cross-program references (point 4) as the same thing
+#
+#   2. arrays (last, push, ...)
+#   3. dates (date type, now(), show and read)
+#   4. cross-program references without actually calling the program (dataflow.series in submit program)
+#   5. assignments with side-effect calling the program (dataflow.series := ...)
+#   6. csv library (csv_parse, csv_print)
+#   7. http library (http_query_param, http_get, http_post, http_put)
+#   8. Eventually... html templating and binding language

@@ -4,6 +4,7 @@ import FinRec.Context
 import FinRec.Exp
 import FinRec.Runtime
 import FinRec.Type
+import FinRec.PolyType
 import FinRec.Val
 
 import Data.List ( nub )
@@ -11,21 +12,21 @@ import Data.List ( nub )
 inst :: PolyType -> Int -> (Type, Int)
 inst s i = (shiftVars i (monotype s), i + polyArity s)
 
-inferExps :: PolyTypeContext -> [Type] -> [Exp] -> Int -> Maybe ([Type], Int, [(Type, Type)])
+inferExps :: PolyTypeContext -> [Type] -> [Exp] -> Int -> Either String ([Type], Int, [(Type, Type)])
 inferExps ctx ts es i =
     case es of
-        [] -> Just ([], i, [])
+        [] -> Right ([], i, [])
         (e:es0) -> do
             (t0, i', g) <- inferExp ctx ts e i
             (ts0, i'', g') <- inferExps ctx ts es0 i'
             return (t0: ts0, i'', g ++ g')
 
-inferExp :: PolyTypeContext -> [Type] -> Exp -> Int -> Maybe (Type, Int, [(Type, Type)])
+inferExp :: PolyTypeContext -> [Type] -> Exp -> Int -> Either String (Type, Int, [(Type, Type)])
 inferExp ctx ts e i =
     case e of
-        Literal v -> Just (typeof v, i, [])
+        Literal v -> Right (typeof v, i, [])
         Apply op es -> do
-            s <- lookup op ctx
+            s <- maybe (Left $ "unbound function " ++ op) Right (lookup op ctx)
             let (t0, i') = inst s i
             (ts0, i'', g) <- inferExps ctx ts es i'
             let t' = TVar i''
@@ -33,35 +34,32 @@ inferExp ctx ts e i =
         Index i0 ->
             if i0 < length ts
                 then return (ts !! i0, i, [])
-                else Nothing
+                else Left $ "undbound index" ++ show (Index i)
         Var x -> 
             if x < length ts
                 then return (reverse ts !! x, i, [])
-                else Nothing
+                else Left $ "unbound variable " ++ show (Var x)
         TupleExp es -> 
             (\ (ts0, i', g) -> (tupleType ts0, i', g)) <$> inferExps ctx ts es i
         Project e0 n -> do
             (t0, i', g) <- inferExp ctx ts e0 i
             let t' = TVar <$> [i' .. i' + n + 1]
             return (last (init t'), i' + n + 2, (t0, openTupleType t'):g)
-        Input -> Just (TVar i, i + 1, [])
+        Input -> Right (TVar i, i + 1, [])
 
-inferProgram :: PolyTypeContext -> Program -> Maybe [Type]
-inferProgram ctx (Program _ es) = do
+inferProgram :: PolyTypeContext -> Program -> Either String [Type]
+inferProgram ctx (Program _ es _) = do
     (ts, _, g) <- infer ctx [] es 0
     g' <- unify g
     let g'' = map ( \(TVar i, t) -> (i, t)) g'
     return (map (substituteTypeVar'' g'') ts)
 
-inferProgramList :: PolyTypeContext -> [Program] -> Maybe PolyTypeContext
+inferProgramList :: PolyTypeContext -> [Program] -> Either String PolyTypeContext
 inferProgramList ctx ps =
     case ps of
-        [] -> Just ctx
+        [] -> Right ctx
         (p : ps0 ) -> do
-            let ts =
-                    case inferProgram ctx p of
-                        Just ts0 -> ts0
-                        Nothing -> runtimeError $ "Type inference failed for program:\n" ++ show p
+            ts <- errorIn p $ inferProgram ctx p
             let t = (programName p, makeProgramCtxPolyType (zip (programBody p) ts))
             inferProgramList (t : ctx) ps0
 
@@ -71,12 +69,12 @@ makeProgramCtxPolyType p =
         outType = snd (last p) 
     in quantifyType $ funType inTypes outType
 
-infer :: PolyTypeContext -> [Type] -> [Exp] -> Int -> Maybe ([Type], Int, [(Type, Type)])
+infer :: PolyTypeContext -> [Type] -> [Exp] -> Int -> Either String ([Type], Int, [(Type, Type)])
 infer ctx ts es i =
     case es of
-        [] -> Just ([], i, [])
+        [] -> Right ([], i, [])
         (e:es0) ->
-            do (t, i', g') <- inferExp ctx ts e i
+            do (t, i', g') <- errorIn e $ inferExp ctx ts e i
                (ts0, i'', g'') <- infer ctx (t : ts) es0 i'
                return (t : ts0, i'', g' ++ g'')
 
@@ -89,7 +87,36 @@ unifyOpenTuple j t ts =
         (TCon "::" [t0, t1], t0':ts0) -> (t0, t0'): unifyOpenTuple j t1 ts0
         _ -> runtimeError $ "unifyOpenTuple " ++ show t ++ " " ++ show ts
 
-unify :: [(Type, Type)] -> Maybe [(Type, Type)]
+unify :: [(Type, Type)] -> Either String [(Type, Type)]
+unify g =
+    let j = foldl max 0 $ freeTypeVars' g
+        unifyCons f0 ts0 f1 ts1 g0
+            | f0 == f1 && length ts0 == length ts1 
+            = unify $ zip ts0 ts1 ++ g0
+            | f0 == "::" && f1 == "()"
+            = unify $ (unifyOpenTuple (1 + j) (TCon f0 ts0) ts1) ++ g0
+            | f0 == "()" && f1 == "::"
+            = unify $ unifyOpenTuple (1 + j) (TCon f1 ts1) ts0 ++ g0
+            | otherwise
+            = Left $ "Type mismatch in " ++ show (TCon f0 ts0) ++ " = " ++ show (TCon f1 ts1)  
+        unifyVar i t g0 
+            | i `elem` freeTypeVars' g0 && i `notElem` freeTypeVars t
+            = unify $ (TVar i, t) : substituteTypeVar' i t g0
+            | i `elem` freeTypeVars t
+            = Left $ "Occurs check failed in " ++ show (TVar i) ++ " = " ++ show t
+            | otherwise
+            = ((TVar i, t):) <$> unify g0
+    in
+    case g of
+        [] -> Right []
+        (t0, t1):g0 
+            | t0 == t1 -> unify g0
+            | otherwise ->
+                case (t0, t1) of
+                    (TCon f0 ts0, TCon f1 ts1) -> unifyCons f0 ts0 f1 ts1 g0
+                    (TCon _ _, TVar _) -> unify $ (t1, t0):g0
+                    (TVar i, _) -> unifyVar i t1 g0
+{-
 unify ((t0, t1):ts) | t0 == t1 = unify ts
 unify ((t0, t1):ts) =
     let j = foldl max 0 $ freeTypeVars' ((t0, t1):ts)
@@ -112,7 +139,8 @@ unify ((t0, t1):ts) =
             -> Nothing -- "Occurs check failed"
             | otherwise
             -> ((TVar i, t1):) <$> unify ts
-unify [] = Just []
+unify [] = Right []
+-}
 
 freeTypeVars' :: [(Type, Type)] -> [Int]
 freeTypeVars' ts = nub $ concatMap (\ (t0, t1) -> freeTypeVars t0 ++ freeTypeVars t1) ts

@@ -22,18 +22,18 @@ program =
     Program "test" 
     [ Input
     , int 1
-    , Apply "plus_i" [Var 0, Var 1]
-    , Apply "plus_i" [Index 0, Index 1]
-    , Apply "plus_i" [Index 0, Index 1]
-    , Apply "plus_i" [Index 0, Index 1]
+    , Apply "plus" [Var 0, Var 1]
+    , Apply "plus" [Index 0, Index 1]
+    , Apply "plus" [Index 0, Index 1]
+    , Apply "plus" [Index 0, Index 1]
     , Input
-    , Apply "plus_i" [Index 0, Index 1]
-    , Apply "plus_i" [Index 0, Index 1]
-    , Apply "times_i" [Index 0, Index 1]
-    , Apply "float" [Var 8]
+    , Apply "plus" [Index 0, Index 1]
+    , Apply "plus" [Index 0, Index 1]
+    , Apply "times" [Index 0, Index 1]
     , Apply "sqrt" [Index 0]
     , Apply "id" [Index 0]
     ]
+    Nothing
 
 network :: Network
 network = initial $ program

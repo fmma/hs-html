@@ -1,6 +1,7 @@
 module FinRec.Context where
 
 import FinRec.Runtime
+import FinRec.PolyType
 import FinRec.Type
 import FinRec.Val
 

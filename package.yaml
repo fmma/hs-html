@@ -27,6 +27,7 @@ library:
   ghc-options:
     - -Wall
     - -fwarn-tabs
+    - -freverse-errors
 
 default-extensions: GADTs, FlexibleInstances
 
@@ -38,6 +39,8 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -freverse-errors
+    - -fwarn-tabs
     dependencies:
     - hs-html
 

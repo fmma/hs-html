@@ -3,31 +3,43 @@ module FinRec.Parser(
 ) where
 
 import FinRec.Exp
+import FinRec.Infix
 import FinRec.Type
 import FinRec.Val
 import FinRec.Runtime
 
 import Data.Char ( isDigit, isAlpha, isAlphaNum, isSpace )
 
-newtype Parser t a = Parser ([t] -> ([t], Maybe a))
+updateInfixTableFromProgram :: Program -> InfixTable -> InfixTable
+updateInfixTableFromProgram p =
+    case programFixity p of
+        Nothing -> id
+        Just (op, f, prec) -> updateInfixTable op f prec
+
+getInfixTable :: (InfixTable -> Parser t a) -> Parser t a
+getInfixTable f = Parser $ \ it ts -> 
+    let Parser q = f it
+    in q it ts
+
+newtype Parser t a = Parser (InfixTable -> [t] -> ([t], Maybe a))
 
 instance Functor (Parser t) where
-    fmap f (Parser p) = Parser $ fmap (fmap f) . p
+    fmap f (Parser p) = Parser $ \it -> fmap (fmap f) . p it
 
 instance Applicative (Parser t) where
-    pure a = Parser $ \ ts -> (ts, Just a)
-    Parser pf <*> Parser px = Parser (\ ts -> (
-        let (ts0, f) = pf ts
-            (ts1, x) = px ts0
+    pure a = Parser $ \ _ ts -> (ts, Just a)
+    Parser pf <*> Parser px = Parser (\ it ts -> (
+        let (ts0, f) = pf it ts
+            (ts1, x) = px it ts0
         in (ts1, f <*> x)
         ))
 
-parse :: String -> [Program]
+parse :: InfixTable -> String -> [Program]
 parse = runParser parseProgramList
 
-runParser :: (Show a, Show t) => Parser t a -> [t] -> a
-runParser (Parser p) ts =
-    case p ts of
+runParser :: (Show a, Show t) => Parser t a -> InfixTable -> [t] -> a
+runParser (Parser p) it ts =
+    case p it ts of
         ([], Just x) -> x 
         (ts0, r) -> runtimeError $ "No parse: " ++ show ts0 ++ " , " ++ show r 
 
@@ -35,22 +47,22 @@ infixl 0 +++
 
 (+++) :: Parser t a -> Parser t a -> Parser t a
 Parser p1 +++ Parser p2 =
-    Parser $ \ ts ->
-        let (ts0, x) = p1 ts
+    Parser $ \ it ts ->
+        let (ts0, x) = p1 it ts
         in case x of
-            Nothing -> p2 ts
+            Nothing -> p2 it ts
             Just _ -> (ts0, x)
 
 token :: Eq t => t -> Parser t t
 token t =
-    Parser $ \ ts ->
+    Parser $ \ _ ts ->
         case ts of
             (t0:ts0) | t == t0 -> (ts0, Just t)
             _ -> (ts, Nothing)
 
 ident1 :: (a -> Bool) -> Parser a [a]
 ident1 p = 
-    Parser $ \ts ->
+    Parser $ \ _ ts ->
         if null ts || not (p (head ts))
             then (ts, Nothing)
             else
@@ -60,17 +72,20 @@ ident1 p =
 
 ident :: (a -> Bool) -> Parser a [a]
 ident p = ident1 p +++ pure []
-                    
-many :: Parser t a -> Parser t [a]
-many (Parser p) = Parser go 
+
+manyWith :: (a -> InfixTable -> InfixTable) -> Parser t a -> Parser t [a]
+manyWith f (Parser p) = Parser go 
     where 
-        go ts = 
-            let (ts0, x) = p ts
+        go it ts = 
+            let (ts0, x) = p it ts
             in case x of
                 Nothing -> (ts, Just [])
                 Just x0 ->
-                    let (ts1, xs) = go ts0
+                    let (ts1, xs) = go (f x0 it) ts0
                     in (ts1, (x0:) <$> xs)
+
+many :: Parser t a -> Parser t [a]
+many = manyWith (const id)
 
 sepby1 :: Parser t a -> Parser t b -> Parser t [b]
 sepby1 sep p = (:) <$> p <*> many (sep *> p)
@@ -97,8 +112,11 @@ parseBool = const True <$> keyword "true" +++
 parseFloat :: Parser Char Float
 parseFloat = (\a b c -> read (a ++ b ++ c)) <$> ident1 isDigit <*> keyword "." <*> ident1 isDigit
 
-space :: Parser Char [Char]
-space = ident isSpace
+space :: Parser Char ()
+space = const () <$> ident isSpace <* (comment +++ pure ())
+
+comment :: Parser Char ()
+comment = const () <$> keyword "#" <* ident (\c -> c /= '\n') <* space
 
 parseVal :: Parser Char Exp
 parseVal = 
@@ -107,6 +125,7 @@ parseVal =
     +++ Number . fromIntegral <$> parseInt
     +++ Bool <$> parseBool
     +++ String <$> parseString
+    +++ TypeVal <$> parseType
     )
     <* space
 
@@ -118,6 +137,9 @@ isAlphaNum' c = isAlphaNum c || c == '_'
 
 parseIdent :: Parser Char String
 parseIdent = (++) <$> ident1 isAlpha' <*> ident isAlphaNum'
+
+parseInfixOp :: Parser Char String
+parseInfixOp = ident1 (`elem` ['?', ':', ';', '.', '\'', '=', '*', '+', '/', '<', '>', '-'])
 
 parseVar :: Parser Char Exp
 parseVar = Var <$> (token 'x' *> parseInt) <* space
@@ -140,23 +162,79 @@ parseExpAtom = parseVal +++ parseApp +++ parseVar +++ parseIndex +++ parseTuple
 chainl :: (a -> b -> a) -> Parser t a -> Parser t b -> Parser t a
 chainl f p1 p2 = foldl f <$> p1 <*> many p2
 
+chainr :: (a -> b -> b) -> Parser t a -> Parser t b -> Parser t b
+chainr f p1 p2 = flip (foldr f) <$> many p1 <*> p2
+
+parseBinopL :: [(a -> b -> a, String)] -> Parser Char a -> Parser Char b -> Parser Char a
+parseBinopL ops p p' = 
+    let ps = map (\ (f, op) -> flip f <$> (keyword op *> space *> p' <* space)) ops
+    in chainl (flip ($)) p (foldr1 (+++) ps)
+
+parseBinopR :: [(a -> b -> b, String)] -> Parser Char a -> Parser Char b -> Parser Char b
+parseBinopR ops p p' = 
+    let ps = map (\ (f, op) -> f <$> (p <* keyword op <* space)) ops
+    in chainr id (foldr1 (+++) ps) p'
+
+parseBinop :: [(a -> b -> c, String)] -> Parser Char a -> Parser Char b -> Parser Char c
+parseBinop ops p p' = 
+    let ps = map (\ (f, op) -> (keyword op *> space *> pure f)) ops
+    in (\ x f y -> f x y) <$> p <*> (foldr1 (+++) ps) <*> p'
+
+parseBinopL' :: [String] -> Parser Char Exp -> Parser Char Exp -> Parser Char Exp
+parseBinopL' ops = parseBinopL (map (\ op -> (\ e0 e1 -> Apply op [e0, e1], op)) ops)
+
+parseBinopR' :: [String] -> Parser Char Exp -> Parser Char Exp -> Parser Char Exp
+parseBinopR' ops = parseBinopR (map (\ op -> (\ e0 e1 -> Apply op [e0, e1], op)) ops)
+
+parseBinop' :: [String] -> Parser Char Exp -> Parser Char Exp -> Parser Char Exp
+parseBinop' ops = parseBinop (map (\ op -> (\ e0 e1 -> Apply op [e0, e1], op)) ops)
+
+parseProject :: Parser Char Exp
+parseProject = parseBinopL [(Project, ".")] parseExpAtom parseInt
+
+parsePrec :: InfixTable -> Parser Char Exp
+parsePrec t =
+    case t of
+        [] -> parseProject
+        (_, (Infixl, ops)):t0 -> parseBinopL' ops (parsePrec t0) (parsePrec t0)
+        (_, (Infixr, ops)):t0 -> parseBinopR' ops (parsePrec t0) (parsePrec t0)
+        (_, (Infix, ops)):t0  -> parseBinop' ops (parsePrec t0) (parsePrec t0)
+
 parseExp :: Parser Char Exp
-parseExp = chainl Project parseExpAtom (keyword "." *> parseInt <* space)
+parseExp = getInfixTable parsePrec
 
 parseInputExp :: Parser Char Exp
 parseInputExp = const Input <$> keyword "input" <* space +++ parseExp
 
-parseInput :: Parser Char Type
-parseInput = parseType <* space
-
 parseType :: Parser Char Type
 parseType = 
+    (
     const numType <$> keyword "number" +++
     const boolType <$> keyword "bool" +++
-    const stringType <$> keyword "string"
+    const stringType <$> keyword "string" +++
+    tupleType <$> (keyword "(" *> space *> many parseType) <* keyword ")"
+    ) <* space
+
+parseFixity :: Parser Char Fixity
+parseFixity = 
+    const Infixl <$> keyword "infixl" +++
+    const Infixr <$> keyword "infixr" +++
+    const Infix  <$> keyword "infix"
+
+parseBinopDecleration :: Parser Char (String, Maybe (String, Fixity, Int))
+parseBinopDecleration = 
+    (\ n f p -> (n, Just (n, f, p))) <$> 
+    (keyword "binop" *> space *> keyword "(" *> space *> parseInfixOp <* space <* keyword "," <* space) <*>
+    parseFixity <* space <* keyword "," <* space <*>
+    parseInt <* space <* keyword ")" <* space
+
+parseProgramDecleration :: Parser Char (String, Maybe (String, Fixity, Int))
+parseProgramDecleration = 
+    parseBinopDecleration +++
+    (\ n -> (n ,Nothing)) <$> parseIdent
 
 parseProgram :: Parser Char Program
-parseProgram = Program <$> parseIdent <* space <* keyword ":" <* space <*> many parseInputExp
+parseProgram = (\ (n, fi) es -> Program n es fi) <$> parseProgramDecleration <* space <* keyword ":" <* space <*> many parseInputExp
 
 parseProgramList :: Parser Char [Program]
-parseProgramList = space *> many parseProgram
+parseProgramList = space *> manyWith updateInfixTableFromProgram parseProgram

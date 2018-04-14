@@ -1,79 +1,45 @@
-recip:
-input
-div(1.0, x0)
+##############################
+#
+# Dataflow standard prelude
+#
+# Author Frederik M. Madsen
+#
+##############################
 
-uminus:
-input
-minus(0, x0)
+recip: 1.0 / i0
 
-neq:
-input
-input
-not(eq(x0, x1))
+uminus: 0 - i0
 
-less:
-input
-input
-and(leq(x0, x1), neq(x0, x1))
+binop(/=,infixl, 2): not(i1 = i0)
 
-geq:
-input
-input
-leq(x1, x0)
+binop(<,infixl, 2): i1 <= i0 && i1 /= i0
 
-greater:
-input
-input
-less(x1, x0)
+binop(>=,infixl, 2): i0 <= i1
 
-max:
-input
-input
-tern(leq(x0, x1), x1, x0) 
+binop(>,infixl, 2): i0 < i1
 
-min: 
-input 
-input
-tern(leq(x0, x1), x0, x1) 
+max: tern(i1 <= i0, i0, i1) 
 
-pow: 
-input 
-input
-exp(times(log(x0), x1))
+min: tern(i1 <= i0, i1, i0) 
 
-logbase: 
-input 
-input
-div(log(x1), log(x0))
+pow: exp(log(i1) * i0)
 
-sqrt: 
-input
-pow(x0, 0.5)
+logbase: log(i0) / log(i1)
 
-tan:
-input
-div(sin(x0), cos(x0))
+sqrt: pow(i0, 0.5)
 
-tanh: 
-input
-div(sinh(x0), cosh(x0))
+tan: sin(i0) / cos(i0)
 
-swap:
-input
-input
-(x1, x0)
+tanh: sinh(i0) / cosh(i0)
 
-substr:
-input
-input
-input
-take(x2, drop(x1, x0))
+swap: (i0.1, i0.0)
 
-charat:
-input
-input
-substr(x0, x1, 1)
+substr: take(i0, drop(i1, i2))
 
-first:
-input
-(x0.1, plus(x0.1, 1.0))
+charat: substr(i1, i0, 1)
+
+id: i0
+
+const: i1
+
+binop(?,infixl, 40): tern(i1, i0.0, i0.1)

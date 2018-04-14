@@ -35,7 +35,7 @@ typecheckExp ctx ts e =
         Input -> runtimeError "Cannot typecheck polymorhpic input. Use type inference instead."
 
 typecheckProgram :: TypeContext -> Program -> Maybe [Type]
-typecheckProgram ctx (Program _ es) = typecheck ctx [] es
+typecheckProgram ctx (Program _ es _) = typecheck ctx [] es
 
 typecheckProgramList :: TypeContext -> [Program] -> Maybe TypeContext
 typecheckProgramList ctx ps =

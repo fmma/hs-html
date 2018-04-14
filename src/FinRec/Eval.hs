@@ -15,6 +15,7 @@ evalExp ctx vs e =
         Var x -> var vs x
         TupleExp es -> Tuple (map (evalExp ctx vs) es)
         Project e0 i -> project i (evalExp ctx vs e0)
+        Input -> runtimeError "Cannot evaluate input"
 
 eval :: Context -> [Val] -> [Exp] -> [Val]
 eval ctx vs es =
@@ -82,3 +83,4 @@ evalExpM ctx vs e =
         Var i -> var vs i
         TupleExp es -> Tuple <$> traverse (evalExpM ctx vs) es
         Project e0 i -> project i <$> evalExpM ctx vs e0
+        Input -> runtimeError "Cannot evaluate input"

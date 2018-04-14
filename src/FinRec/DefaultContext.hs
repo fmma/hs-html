@@ -1,10 +1,13 @@
 module FinRec.DefaultContext 
 ( valueContext
 , typeContext
+, infixTable
 ) where
 
 import FinRec.Context
+import FinRec.Infix
 import FinRec.Type
+import FinRec.PolyType ( quantifyType )
 import FinRec.Val
 
 import Data.Fixed ( mod' )
@@ -12,26 +15,38 @@ import Data.Fixed ( mod' )
 tern :: Bool -> a -> a -> a
 tern b x y = if b then x else y
 
+float :: Int -> Float
+float = fromIntegral
+
+infixTable :: InfixTable
+infixTable = 
+    [ (0, (Infixl, ["||"]))
+    , (1, (Infixl, ["&&"]))
+    , (2, (Infixl, ["=", "<="]))
+    , (3, (Infixl, ["+", "-"]))
+    , (4, (Infixl, ["*", "/"]))
+    ]
+
 defaultContext :: [(String, [Val] -> Val, [Type], Type)]
 defaultContext = 
-    [ prim (num_    $ num_    num   ) "plus" (+)
-    , prim (num_    $ num_    num   ) "minus" (-)
-    , prim (num_    $ num_    num   ) "times" (*)
-    , prim (num_    $ num_    num   ) "div" (/)
+    [ prim (num_    $ num_    num   ) "+" (+)
+    , prim (num_    $ num_    num   ) "-" (-)
+    , prim (num_    $ num_    num   ) "*" (*)
+    , prim (num_    $ num_    num   ) "/" (/)
     , prim (num_    num   ) "abs" abs
     , prim (num_    num   ) "sign" signum
 
-    , prim (tv_ 0   $ tv_ 0   bool  ) "eq"  (==)
-    , prim (tv_ 0   $ tv_ 0   bool  ) "leq" (<=)
+    , prim (tv_ 0   $ tv_ 0   bool  ) "="  (==)
+    , prim (tv_ 0   $ tv_ 0   bool  ) "<=" (<=)
 
     , prim (bool_   $tv_ 0 $ tv_ 0 $ tv 0) "tern" tern
 
-    , prim (bool_   $ bool_   bool  ) "and" (&&)
-    , prim (bool_   $ bool_   bool  ) "or" (||)
+    , prim (bool_   $ bool_   bool  ) "&&" (&&)
+    , prim (bool_   $ bool_   bool  ) "||" (||)
     , prim (bool_   bool  ) "not" not
-    , prim (num_    num   ) "round" (fromIntegral . round)
-    , prim (num_    num   ) "floor" (fromIntegral . floor)
-    , prim (num_    num   ) "ceil" (fromIntegral . ceiling)
+    , prim (num_    num   ) "round" (float . round)
+    , prim (num_    num   ) "floor" (float . floor)
+    , prim (num_    num   ) "ceil" (float . ceiling)
     , prim (num_    $ num_    num   ) "mod" mod'
     , prim num   "pi" pi
     , prim (num_    num   ) "exp" exp
@@ -46,14 +61,13 @@ defaultContext =
     , prim (num_    num   ) "acosh" acosh
     , prim (num_    num   ) "atanh" atanh
 
-    , prim (string_ $ tv 0  ) "read"   read
+    , prim (typ_ 0  $ string_ $ tv 0  ) "read"  (const read)
     , prim (tv_ 0   string) "tostring" show
     , prim (string_ $ string_ string) "append" (++)
     , prim (num_    $ string_ string) "take" (\ i -> take (floor i))
     , prim (num_    $ string_ string) "drop" (\ i -> drop (floor i))
-    , prim (string_ num   ) "length" (fromIntegral . length)
-    , prim (tv_ 0   $ tv 0) "id" id
-    , prim (tv_ 0   $ tv_ 1   $ tv 1   ) "const" const
+    , prim (string_ num   ) "length" (float . length)
+    , prim (tv_ 0   $ typ 0) "typeof" typeof
     ]
 
 valueContext :: Context
@@ -97,6 +111,9 @@ string = base String stringType
 tv :: Int -> TypeDict Val
 tv = base id . TVar
 
+typ :: Int -> TypeDict Type
+typ i = base TypeVal (typeType (TVar i))
+
 num_    :: TypeDict a -> TypeDict (Float -> a)
 num_    = fun (\ (Number n) -> n) numType
 
@@ -108,6 +125,9 @@ string_ = fun (\ (String n) -> n) stringType
 
 tv_ :: Int -> TypeDict a -> TypeDict (Val -> a)
 tv_ i = fun id (TVar i)
+
+typ_ :: Int -> TypeDict a -> TypeDict (Type -> a)
+typ_ i = fun  (\ (TypeVal t) -> t) (typeType (TVar i))
 
 prim ::TypeDict a -> String -> a -> (String, [Val] -> Val, [Type], Type)
 prim d op f = (op, denotation d f, numypes d, outType d)
