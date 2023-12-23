@@ -14,8 +14,22 @@ submit:
 # TODO
 #   1. named expressions and references (name: ...)
 #          Maybe treat references and cross-program references (point 4) as the same thing
+#          Polymorhic types?
+#              What is the type equality constraint of x.field?
+#              x must be a program in the type context with all fields enumerated.
+#              TypeContext is then CTX := [X -> Type * CTX]
+#              OR: Type ::= ... | Type * CTX, but then how should unify g1 = t2 * g2 work?
+#              obviously, t1 = t2 and dom(g1) = dom(g2) and forall x in dom(g1). g1[x] = g2[x]
+#              how about t1 * CTX = t2? Elimite t2 and substitute!
+#              OR: Type ::= ... | [X -> Type]
+#              Same. ie CTX = TCON -> err
+#                       CTX = var  -> subst (occurs check)
+#                       CTX = CTX  -> g1[x] = g2[x]
+#              Then infer :: Type -> Exp -> [(Type, Type)] -- nah
 #
 #   2. arrays (last, push, ...)
+#          Figure out builtin and prelude
+#
 #   3. dates (date type, now(), show and read)
 #   4. cross-program references without actually calling the program (dataflow.series in submit program)
 #   5. assignments with side-effect calling the program (dataflow.series := ...)

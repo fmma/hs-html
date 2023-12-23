@@ -6,9 +6,11 @@ import Data.Char ( ord, chr )
 import Data.List ( intercalate )
 
 data Type
-    = TCon String [Type] 
+    = TCon String [Type]
     | TVar Int
     deriving (Eq, Ord, Read)
+
+data ProgType = ProgType Int Type [(String, Type)]
 
 baseType :: String -> Type
 baseType x = TCon x []

@@ -13,6 +13,7 @@ data Exp
     | TupleExp [Exp]
     | Project Exp Int
     | Input
+    | Refernce String
 
 data Program = Program 
     { programName :: String
